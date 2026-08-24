@@ -1,0 +1,410 @@
+# Irrigation Controller v2
+# ESP32 + 8-channel relay board
+# Replaces Orbit B-hyve cloud controller
+#
+# Hardware:
+#   - ESP32 dev board
+#   - 8-channel 5V optoisolated relay module (active-low)
+#   - 24VAC transformer (reused from B-hyve)
+#   - 24VAC solenoid valves
+#
+# Wiring:
+#   ESP32 5V  -> Relay VCC
+#   ESP32 GND -> Relay GND
+#   ESP32 GPIOs -> Relay IN1-IN8 (directly, optoisolation handles level)
+#   Relay COM (all) -> 24VAC hot
+#   Relay NO -> Individual valve wires
+#   24VAC common -> All valve commons
+
+substitutions:
+  device_name: irrigation-controller
+  friendly_name: "Irrigation Controller"
+
+  # Zone names - match existing B-hyve setup
+  zone_1_name: "Zone 1 - NW - Driveway"
+  zone_2_name: "Zone 2 - NE - Front Yard"
+  zone_3_name: "Zone 3 - SE - Swamp/Firewood"
+  zone_4_name: "Zone 4 - SW - Backyard"
+  zone_5_name: "Zone 5 - Reserved"
+  zone_6_name: "Zone 6 - Reserved"
+  zone_7_name: "Zone 7 - Reserved"
+  zone_8_name: "Zone 8 - Reserved"
+
+  # GPIO assignments for relay board
+  # Adjust these based on your wiring
+  relay_1_pin: GPIO32
+  relay_2_pin: GPIO33
+  relay_3_pin: GPIO25
+  relay_4_pin: GPIO26
+  relay_5_pin: GPIO27
+  relay_6_pin: GPIO14
+  relay_7_pin: GPIO12
+  relay_8_pin: GPIO13
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  project:
+    name: "witek.irrigation-controller"
+    version: "2.0.0"
+  on_boot:
+    priority: -10
+    then:
+      - switch.turn_on: auto_advance
+
+esp32:
+  board: esp32dev
+  framework:
+    platform_version: https://github.com/pioarduino/platform-espressif32/releases/download/55.03.31/platform-espressif32.zip
+    type: arduino
+    version: 3.3.2
+
+# Logging
+logger:
+  level: INFO
+  logs:
+    # Reduce sprinkler spam
+    sprinkler: WARN
+
+# Home Assistant API
+api:
+  encryption:
+    key: !secret irrigation_api_key
+  reboot_timeout: 0s
+
+# OTA updates
+ota:
+  - platform: esphome
+    password: !secret irrigation_ota_password
+
+# WiFi
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: .witekdivers.com
+  fast_connect: true
+
+  # Fallback hotspot
+  ap:
+    ssid: "${device_name}-fallback"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+# Web server for local access
+web_server:
+  port: 80
+
+# Sync time with Home Assistant
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# Status LED (onboard)
+status_led:
+  pin:
+    number: GPIO2
+    inverted: false
+
+#####################################
+# Sensors
+#####################################
+sensor:
+  # Uptime
+  - platform: uptime
+    name: "Uptime"
+
+  # WiFi signal strength
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  # ESPHome version
+  - platform: version
+    name: "ESPHome Version"
+
+  # WiFi info
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+
+  # Active valve status
+  - platform: template
+    name: "Active Zone"
+    id: active_zone_text
+    icon: "mdi:sprinkler-variant"
+    lambda: |-
+      if (id(irrigation_controller).active_valve().has_value()) {
+        switch(id(irrigation_controller).active_valve().value()) {
+          case 0: return std::string("${zone_1_name}");
+          case 1: return std::string("${zone_2_name}");
+          case 2: return std::string("${zone_3_name}");
+          case 3: return std::string("${zone_4_name}");
+          case 4: return std::string("${zone_5_name}");
+          case 5: return std::string("${zone_6_name}");
+          case 6: return std::string("${zone_7_name}");
+          case 7: return std::string("${zone_8_name}");
+          default: return std::string("Unknown");
+        }
+      }
+      return std::string("Idle");
+    update_interval: 1s
+
+#####################################
+# Binary Sensors
+#####################################
+binary_sensor:
+  # Connection status
+  - platform: status
+    name: "Status"
+
+#####################################
+# Restart Button
+#####################################
+button:
+  - platform: restart
+    name: "Restart"
+
+  # Pause watering
+  - platform: template
+    name: "Pause"
+    icon: "mdi:pause"
+    on_press:
+      - sprinkler.pause: irrigation_controller
+
+  # Resume watering
+  - platform: template
+    name: "Resume"
+    icon: "mdi:play"
+    on_press:
+      - sprinkler.resume: irrigation_controller
+
+#####################################
+# Main Sprinkler Controller
+#####################################
+sprinkler:
+  - id: irrigation_controller
+    main_switch:
+      name: "Master"
+      id: master_switch
+    auto_advance_switch:
+      id: auto_advance
+      name: "Auto Advance"
+    valve_open_delay: 2s
+
+    valves:
+      - valve_switch: ${zone_1_name}
+        enable_switch:
+          name: "Enable ${zone_1_name}"
+        run_duration: 600s  # 10 min default
+        valve_switch_id: zone_1_switch
+
+      - valve_switch: ${zone_2_name}
+        enable_switch:
+          name: "Enable ${zone_2_name}"
+        run_duration: 600s
+        valve_switch_id: zone_2_switch
+
+      - valve_switch: ${zone_3_name}
+        enable_switch:
+          name: "Enable ${zone_3_name}"
+        run_duration: 600s
+        valve_switch_id: zone_3_switch
+
+      - valve_switch: ${zone_4_name}
+        enable_switch:
+          name: "Enable ${zone_4_name}"
+        run_duration: 600s
+        valve_switch_id: zone_4_switch
+
+      # Reserved zones - disabled by default
+      - valve_switch: ${zone_5_name}
+        enable_switch:
+          name: "Enable ${zone_5_name}"
+          disabled_by_default: true
+        run_duration: 600s
+        valve_switch_id: zone_5_switch
+
+      - valve_switch: ${zone_6_name}
+        enable_switch:
+          name: "Enable ${zone_6_name}"
+          disabled_by_default: true
+        run_duration: 600s
+        valve_switch_id: zone_6_switch
+
+      - valve_switch: ${zone_7_name}
+        enable_switch:
+          name: "Enable ${zone_7_name}"
+          disabled_by_default: true
+        run_duration: 600s
+        valve_switch_id: zone_7_switch
+
+      - valve_switch: ${zone_8_name}
+        enable_switch:
+          name: "Enable ${zone_8_name}"
+          disabled_by_default: true
+        run_duration: 600s
+        valve_switch_id: zone_8_switch
+
+#####################################
+# Run Duration Controls
+#####################################
+number:
+  - platform: template
+    name: "${zone_1_name} Duration"
+    id: zone_1_duration
+    min_value: 1
+    max_value: 60
+    step: 1
+    unit_of_measurement: "min"
+    icon: "mdi:timer-outline"
+    mode: box
+    lambda: "return id(irrigation_controller).valve_run_duration(0) / 60;"
+    set_action:
+      - sprinkler.set_valve_run_duration:
+          id: irrigation_controller
+          valve_number: 0
+          run_duration: !lambda 'return x * 60;'
+
+  - platform: template
+    name: "${zone_2_name} Duration"
+    id: zone_2_duration
+    min_value: 1
+    max_value: 60
+    step: 1
+    unit_of_measurement: "min"
+    icon: "mdi:timer-outline"
+    mode: box
+    lambda: "return id(irrigation_controller).valve_run_duration(1) / 60;"
+    set_action:
+      - sprinkler.set_valve_run_duration:
+          id: irrigation_controller
+          valve_number: 1
+          run_duration: !lambda 'return x * 60;'
+
+  - platform: template
+    name: "${zone_3_name} Duration"
+    id: zone_3_duration
+    min_value: 1
+    max_value: 60
+    step: 1
+    unit_of_measurement: "min"
+    icon: "mdi:timer-outline"
+    mode: box
+    lambda: "return id(irrigation_controller).valve_run_duration(2) / 60;"
+    set_action:
+      - sprinkler.set_valve_run_duration:
+          id: irrigation_controller
+          valve_number: 2
+          run_duration: !lambda 'return x * 60;'
+
+  - platform: template
+    name: "${zone_4_name} Duration"
+    id: zone_4_duration
+    min_value: 1
+    max_value: 60
+    step: 1
+    unit_of_measurement: "min"
+    icon: "mdi:timer-outline"
+    mode: box
+    lambda: "return id(irrigation_controller).valve_run_duration(3) / 60;"
+    set_action:
+      - sprinkler.set_valve_run_duration:
+          id: irrigation_controller
+          valve_number: 3
+          run_duration: !lambda 'return x * 60;'
+
+  # Repeat cycles
+  - platform: template
+    name: "Repeat Cycles"
+    id: repeat_cycles
+    min_value: 0
+    max_value: 5
+    step: 1
+    icon: "mdi:repeat"
+    mode: box
+    lambda: "return id(irrigation_controller).repeat();"
+    set_action:
+      - sprinkler.set_repeat:
+          id: irrigation_controller
+          repeat: !lambda 'return x;'
+
+#####################################
+# Relay Output Switches (directly control GPIOs)
+# Active-low for optoisolated relay board
+#####################################
+switch:
+  # Zone 1 relay
+  - platform: gpio
+    id: zone_1_switch
+    pin:
+      number: ${relay_1_pin}
+      inverted: true  # Active-low
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 2 relay
+  - platform: gpio
+    id: zone_2_switch
+    pin:
+      number: ${relay_2_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 3 relay
+  - platform: gpio
+    id: zone_3_switch
+    pin:
+      number: ${relay_3_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 4 relay
+  - platform: gpio
+    id: zone_4_switch
+    pin:
+      number: ${relay_4_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 5 relay (reserved)
+  - platform: gpio
+    id: zone_5_switch
+    pin:
+      number: ${relay_5_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 6 relay (reserved)
+  - platform: gpio
+    id: zone_6_switch
+    pin:
+      number: ${relay_6_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 7 relay (reserved)
+  - platform: gpio
+    id: zone_7_switch
+    pin:
+      number: ${relay_7_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Zone 8 relay (reserved)
+  - platform: gpio
+    id: zone_8_switch
+    pin:
+      number: ${relay_8_pin}
+      inverted: true
+    restore_mode: ALWAYS_OFF
+    internal: true
