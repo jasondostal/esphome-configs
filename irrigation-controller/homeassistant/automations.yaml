@@ -1,0 +1,115 @@
+# Irrigation automations — the "when" and "whether" layer.
+# The device sequences zones on its own; these only decide when a run starts.
+# Replace weather.home and notify.mobile_app_your_phone with your own entities.
+
+- id: irrigation_rain_forecast_check
+  alias: Irrigation - Rain Forecast Check
+  description: Daily 1am forecast check. Sets irrigation_rain_skip on if predicted
+    precip (today + tomorrow) >= threshold.
+  triggers:
+  - trigger: time
+    at: 01:00:00
+  actions:
+  - service: weather.get_forecasts
+    target:
+      entity_id: weather.home
+    data:
+      type: daily
+    response_variable: forecast
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ (forecast['weather.home'].forecast[0].precipitation
+          | float(0)) +\n   (forecast['weather.home'].forecast[1].precipitation
+          | float(0)) >=\n   (states('input_number.irrigation_rain_threshold') | float(0))
+          }}"
+      sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.irrigation_rain_skip
+    default:
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.irrigation_rain_skip
+  mode: single
+- id: irrigation_scheduled_run
+  alias: Irrigation - Scheduled Run
+  description: Triggers irrigation at the configured start time on selected days,
+    unless rain skip or manual skip is active.
+  triggers:
+  - trigger: time
+    at: input_datetime.irrigation_start_time
+  conditions:
+  - condition: state
+    entity_id: input_boolean.irrigation_enabled
+    state: 'on'
+  - condition: template
+    value_template: '{% set days = [''monday'',''tuesday'',''wednesday'',''thursday'',''friday'',''saturday'',''sunday'']
+      %} {{ is_state(''input_boolean.irrigation_'' ~ days[now().weekday()], ''on'')
+      }}
+
+      '
+  actions:
+  - choose:
+    - conditions:
+      - condition: or
+        conditions:
+        - condition: state
+          entity_id: input_boolean.irrigation_rain_skip
+          state: 'on'
+        - condition: state
+          entity_id: input_boolean.irrigation_skip_next_run
+          state: 'on'
+      sequence:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: Irrigation Skipped
+          message: '{% if is_state(''input_boolean.irrigation_skip_next_run'', ''on'')
+            %} Skipped — manual skip {% else %} Skipped — rain forecast (threshold
+            {{ states(''input_number.irrigation_rain_threshold'') }} in) {% endif
+            %}'
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.irrigation_skip_next_run
+    default:
+    - service: switch.turn_on
+      target:
+        entity_id: switch.irrigation_controller_auto_advance
+    - service: switch.turn_on
+      target:
+        entity_id: switch.irrigation_controller_master
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.irrigation_last_run
+      data:
+        value: '{{ now().strftime(''%m/%d/%Y %-I:%M %p'') }}'
+  mode: single
+- id: irrigation_complete
+  alias: Irrigation - Run Complete
+  description: Notifies when irrigation cycle finishes; restores zone-enable state
+    if a quick-run snapshot exists.
+  triggers:
+  - trigger: state
+    entity_id: sensor.irrigation_controller_active_zone
+    to: Idle
+  conditions:
+  - condition: template
+    value_template: '{{ trigger.from_state.state not in [''Idle'', ''unavailable'',
+      ''unknown''] }}
+
+      '
+  actions:
+  - service: notify.mobile_app_your_phone
+    data:
+      title: Irrigation Complete
+      message: All zones finished at {{ now().strftime('%-I:%M %p') }}
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ states(''scene.irrigation_zone_state_snapshot'') not in
+          [''unavailable'', ''unknown'', ''none''] }}'
+      sequence:
+      - service: scene.turn_on
+        target:
+          entity_id: scene.irrigation_zone_state_snapshot
+  mode: single

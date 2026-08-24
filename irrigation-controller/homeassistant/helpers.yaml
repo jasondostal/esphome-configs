@@ -1,0 +1,44 @@
+# Helpers the automations/dashboard depend on. Mine were mostly created in the
+# HA UI (Settings → Devices & Services → Helpers); these are the YAML
+# equivalents if you'd rather define them in configuration.yaml.
+
+input_boolean:
+  irrigation_enabled:
+    name: Irrigation Enabled          # master schedule kill switch
+    icon: mdi:calendar-check
+  irrigation_rain_skip:
+    name: Irrigation Rain Skip        # set/cleared by the 1am forecast check
+    icon: mdi:weather-rainy
+  irrigation_skip_next_run:
+    name: Irrigation Skip Next Run    # manual one-shot skip; clears itself
+    icon: mdi:transit-skip
+  irrigation_monday: { name: Irrigation Monday }
+  irrigation_tuesday: { name: Irrigation Tuesday }
+  irrigation_wednesday: { name: Irrigation Wednesday }
+  irrigation_thursday: { name: Irrigation Thursday }
+  irrigation_friday: { name: Irrigation Friday }
+  irrigation_saturday: { name: Irrigation Saturday }
+  irrigation_sunday: { name: Irrigation Sunday }
+
+input_number:
+  irrigation_rain_threshold:
+    name: Irrigation Rain Threshold   # inches, summed today + tomorrow
+    min: 0.0
+    max: 1.0
+    step: 0.05
+    mode: slider
+    unit_of_measurement: "in"
+    icon: mdi:weather-pouring
+
+input_datetime:
+  irrigation_start_time:
+    name: Irrigation Start Time
+    has_date: false
+    has_time: true
+    icon: mdi:clock-start
+
+input_text:
+  irrigation_last_run:
+    name: Irrigation Last Run
+    max: 50
+    icon: mdi:history

@@ -1,0 +1,78 @@
+# Template sensors for the dashboard — friendly state text, a computed
+# "next run" preview, and a skip-status line. Goes under your existing
+# template: -> sensor: block in configuration.yaml.
+
+template:
+  - sensor:
+      - name: "Irrigation State"
+        unique_id: irrigation_state
+        state: >
+          {% set active = states('sensor.irrigation_controller_active_zone') %}
+          {% if active in ['Idle', 'unavailable', 'unknown', 'none', ''] %}
+            Idle
+          {% else %}
+            Watering — {{ active }}
+          {% endif %}
+        icon: >
+          {% set active = states('sensor.irrigation_controller_active_zone') %}
+          {% if active in ['Idle', 'unavailable', 'unknown', 'none', ''] %}
+            mdi:sprinkler-variant
+          {% else %}
+            mdi:sprinkler
+          {% endif %}
+
+      - name: "Irrigation Next Run"
+        unique_id: irrigation_next_run
+        icon: mdi:calendar-clock
+        state: >
+          {% set days = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] %}
+          {% set start_time = states('input_datetime.irrigation_start_time') %}
+          {% set parts = start_time.split(':') %}
+          {% set start_h = parts[0] | int %}
+          {% set start_m = parts[1] | int %}
+          {% set today_idx = now().weekday() %}
+          {% set today_minutes = now().hour * 60 + now().minute %}
+          {% set start_minutes = start_h * 60 + start_m %}
+          {% set ns = namespace(found=-1) %}
+          {% if is_state('input_boolean.irrigation_enabled', 'on') %}
+            {% for offset in range(0, 8) %}
+              {% set idx = (today_idx + offset) % 7 %}
+              {% set en = is_state('input_boolean.irrigation_' ~ days[idx], 'on') %}
+              {% set future = (offset > 0) or (offset == 0 and start_minutes > today_minutes) %}
+              {% if ns.found < 0 and en and future %}
+                {% set ns.found = offset %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          {% if ns.found >= 0 %}
+            {% set day_label = (now() + timedelta(days=ns.found)).strftime('%a') %}
+            {% set h12 = start_h if start_h <= 12 else start_h - 12 %}
+            {% set h12 = 12 if h12 == 0 else h12 %}
+            {% set ampm = 'AM' if start_h < 12 else 'PM' %}
+            {{ day_label }} {{ h12 }}:{{ '%02d' % start_m }} {{ ampm }}
+          {% else %}
+            —
+          {% endif %}
+
+      - name: "Irrigation Skip Status"
+        unique_id: irrigation_skip_status
+        state: >-
+          {% if not is_state('input_boolean.irrigation_enabled', 'on') %}
+          Schedule disabled
+          {%- elif is_state('input_boolean.irrigation_skip_next_run', 'on') %}
+          Skipping next run (manual)
+          {%- elif is_state('input_boolean.irrigation_rain_skip', 'on') %}
+          Skipping next run (rain forecast)
+          {%- else %}
+          Normal
+          {%- endif %}
+        icon: >
+          {% if is_state('input_boolean.irrigation_skip_next_run', 'on') %}
+            mdi:hand-back-right-outline
+          {% elif is_state('input_boolean.irrigation_rain_skip', 'on') %}
+            mdi:weather-rainy
+          {% elif not is_state('input_boolean.irrigation_enabled', 'on') %}
+            mdi:pause-circle
+          {% else %}
+            mdi:check-circle
+          {% endif %}

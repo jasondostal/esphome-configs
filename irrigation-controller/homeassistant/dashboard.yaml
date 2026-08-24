@@ -1,0 +1,205 @@
+# The "Irrigation v2" Lovelace view — phone-first card stack: status hero,
+# quick actions, rain status, schedule, then the folded geek panels.
+# Needs custom:fold-entity-row from HACS for the collapsed sections.
+# Replace weather.home with your own weather entity.
+
+- title: Irrigation v2
+  path: irrigation_v2
+  icon: mdi:sprinkler-variant
+  cards:
+  - type: vertical-stack
+    cards:
+    - type: tile
+      entity: sensor.irrigation_state
+      name: Irrigation
+      color: blue
+      vertical: true
+    - type: conditional
+      conditions:
+      - condition: state
+        entity: switch.irrigation_controller_master
+        state: 'on'
+      card:
+        type: tile
+        entity: sensor.irrigation_controller_active_zone
+        name: Currently watering
+        icon: mdi:water
+        color: blue
+    - type: entities
+      show_header_toggle: false
+      state_color: true
+      entities:
+      - entity: input_text.irrigation_last_run
+        name: Last run
+        icon: mdi:history
+      - entity: sensor.irrigation_next_run
+        name: Next run
+      - entity: sensor.irrigation_skip_status
+        name: Status
+  - type: vertical-stack
+    cards:
+    - type: tile
+      entity: input_boolean.irrigation_skip_next_run
+      name: Skip Next Run
+      color: amber
+      icon: mdi:transit-skip
+    - type: grid
+      columns: 3
+      square: false
+      cards:
+      - type: tile
+        entity: script.irrigation_water_front
+        name: Water Front
+        icon: mdi:sprinkler
+        color: green
+        tap_action:
+          action: perform-action
+          perform_action: script.irrigation_water_front
+      - type: tile
+        entity: script.irrigation_water_back
+        name: Water Back
+        icon: mdi:sprinkler
+        color: green
+        tap_action:
+          action: perform-action
+          perform_action: script.irrigation_water_back
+      - type: tile
+        entity: script.irrigation_water_all
+        name: Water All
+        icon: mdi:sprinkler-variant
+        color: blue
+        tap_action:
+          action: perform-action
+          perform_action: script.irrigation_water_all
+    - type: tile
+      entity: script.irrigation_stop_all
+      name: STOP
+      icon: mdi:stop-circle
+      color: red
+      tap_action:
+        action: perform-action
+        perform_action: script.irrigation_stop_all
+  - type: entities
+    title: Rain Status
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - entity: weather.home
+      name: Forecast
+    - entity: input_number.irrigation_rain_threshold
+      name: Skip threshold
+    - entity: input_boolean.irrigation_rain_skip
+      name: Auto rain-skip armed
+  - type: entities
+    title: Schedule
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - entity: input_boolean.irrigation_enabled
+      name: Schedule enabled
+    - entity: input_datetime.irrigation_start_time
+      name: Start time
+    - type: section
+      label: Days of week
+    - entity: input_boolean.irrigation_monday
+      name: Monday
+    - entity: input_boolean.irrigation_tuesday
+      name: Tuesday
+    - entity: input_boolean.irrigation_wednesday
+      name: Wednesday
+    - entity: input_boolean.irrigation_thursday
+      name: Thursday
+    - entity: input_boolean.irrigation_friday
+      name: Friday
+    - entity: input_boolean.irrigation_saturday
+      name: Saturday
+    - entity: input_boolean.irrigation_sunday
+      name: Sunday
+  - type: entities
+    title: Zones
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - type: custom:fold-entity-row
+      head:
+        type: section
+        label: Tap to expand per-zone controls
+      entities:
+      - entity: switch.irrigation_controller_enable_zone_1_nw_driveway
+        name: Z1 NW Driveway — Enable
+      - entity: number.irrigation_controller_zone_1_nw_driveway_duration
+        name: Z1 Duration
+      - entity: switch.irrigation_controller_zone_1_nw_driveway
+        name: Z1 Run now
+      - entity: switch.irrigation_controller_enable_zone_2_ne_front_yard
+        name: Z2 NE Front Yard — Enable
+      - entity: number.irrigation_controller_zone_2_ne_front_yard_duration
+        name: Z2 Duration
+      - entity: switch.irrigation_controller_zone_2_ne_front_yard
+        name: Z2 Run now
+      - entity: switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+        name: Z3 SE Swamp/Firewood — Enable
+      - entity: number.irrigation_controller_zone_3_se_swamp_firewood_duration
+        name: Z3 Duration
+      - entity: switch.irrigation_controller_zone_3_se_swamp_firewood
+        name: Z3 Run now
+      - entity: switch.irrigation_controller_enable_zone_4_sw_backyard
+        name: Z4 SW Backyard — Enable
+      - entity: number.irrigation_controller_zone_4_sw_backyard_duration
+        name: Z4 Duration
+      - entity: switch.irrigation_controller_zone_4_sw_backyard
+        name: Z4 Run now
+  - type: entities
+    title: Controller
+    show_header_toggle: false
+    state_color: true
+    entities:
+    - type: custom:fold-entity-row
+      head:
+        type: section
+        label: Tap to expand controller internals
+      entities:
+      - entity: switch.irrigation_controller_master
+        name: Master
+      - entity: switch.irrigation_controller_auto_advance
+        name: Auto Advance
+      - entity: number.irrigation_controller_repeat_cycles
+        name: Repeat Cycles
+      - entity: sensor.irrigation_controller_active_zone
+        name: Active Zone
+      - entity: button.irrigation_controller_pause
+        name: Pause
+      - entity: button.irrigation_controller_resume
+        name: Resume
+      - entity: button.irrigation_controller_restart
+        name: Restart
+  - type: history-graph
+    title: Run History (24h)
+    hours_to_show: 24
+    entities:
+    - entity: switch.irrigation_controller_master
+    - entity: switch.irrigation_controller_zone_1_nw_driveway
+    - entity: switch.irrigation_controller_zone_2_ne_front_yard
+    - entity: switch.irrigation_controller_zone_3_se_swamp_firewood
+    - entity: switch.irrigation_controller_zone_4_sw_backyard
+  - type: entities
+    title: Device
+    show_header_toggle: false
+    entities:
+    - type: custom:fold-entity-row
+      head:
+        type: section
+        label: Tap to expand device info
+      entities:
+      - entity: binary_sensor.irrigation_controller_status
+        name: Status
+      - entity: sensor.irrigation_controller_ip_address
+        name: IP Address
+      - entity: sensor.irrigation_controller_connected_ssid
+        name: SSID
+      - entity: sensor.irrigation_controller_wifi_signal
+        name: WiFi Signal
+      - entity: sensor.irrigation_controller_uptime
+        name: Uptime
+      - entity: sensor.irrigation_controller_esphome_version
+        name: Firmware

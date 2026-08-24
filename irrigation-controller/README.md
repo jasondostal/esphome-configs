@@ -52,3 +52,10 @@ Zone map (4 wired, 4 reserved for expansion):
 - `web_server` on port 80 gives full local control from any browser on the LAN.
 - Per-zone run durations are exposed as minute-denominated `number` entities
   wrapping `sprinkler.set_valve_run_duration`.
+
+## The Home Assistant layer
+
+The scheduling/rain-skip automations, quick-run scripts, helpers, template
+sensors, and the phone-first dashboard view live in
+[`homeassistant/`](homeassistant/) — HA decides *when* and *whether*, the
+device does everything else.

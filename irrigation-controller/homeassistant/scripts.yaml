@@ -1,0 +1,128 @@
+# Irrigation quick-run scripts. The water_* scripts snapshot the zone-enable
+# switches first (scene.create) so a partial run can restore your normal
+# zone selection when it finishes (see the irrigation_complete automation).
+
+irrigation_water_all:
+  alias: "Irrigation - Water All Zones"
+  icon: "mdi:sprinkler-variant"
+  sequence:
+  - service: scene.create
+    data:
+      scene_id: irrigation_zone_state_snapshot
+      snapshot_entities:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_2_ne_front_yard
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_on
+    target:
+      entity_id:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_2_ne_front_yard
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_auto_advance
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_master
+  mode: single
+
+irrigation_water_front:
+  alias: "Irrigation - Water Front (Z1+Z2)"
+  icon: "mdi:sprinkler"
+  sequence:
+  - service: scene.create
+    data:
+      scene_id: irrigation_zone_state_snapshot
+      snapshot_entities:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_2_ne_front_yard
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_on
+    target:
+      entity_id:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_2_ne_front_yard
+  - service: switch.turn_off
+    target:
+      entity_id:
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_auto_advance
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_master
+  mode: single
+
+irrigation_water_back:
+  alias: "Irrigation - Water Back (Z3+Z4)"
+  icon: "mdi:sprinkler"
+  sequence:
+  - service: scene.create
+    data:
+      scene_id: irrigation_zone_state_snapshot
+      snapshot_entities:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_2_ne_front_yard
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_off
+    target:
+      entity_id:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_2_ne_front_yard
+  - service: switch.turn_on
+    target:
+      entity_id:
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_auto_advance
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_master
+  mode: single
+
+irrigation_front_yard_only:
+  alias: "Irrigation - Front Yard Only"
+  icon: "mdi:sprinkler"
+  sequence:
+  - service: switch.turn_off
+    target:
+      entity_id:
+      - switch.irrigation_controller_enable_zone_1_nw_driveway
+      - switch.irrigation_controller_enable_zone_3_se_swamp_firewood
+      - switch.irrigation_controller_enable_zone_4_sw_backyard
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_enable_zone_2_ne_front_yard
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_auto_advance
+  - service: switch.turn_on
+    target:
+      entity_id: switch.irrigation_controller_master
+  mode: single
+
+irrigation_stop_all:
+  alias: "Irrigation - Stop All"
+  icon: "mdi:stop-circle"
+  sequence:
+  - service: switch.turn_off
+    target:
+      entity_id: switch.irrigation_controller_master
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ states('scene.irrigation_zone_state_snapshot') not in ['unavailable', 'unknown', 'none'] }}"
+      sequence:
+      - service: scene.turn_on
+        target:
+          entity_id: scene.irrigation_zone_state_snapshot
+  mode: single
