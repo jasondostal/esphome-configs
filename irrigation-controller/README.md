@@ -15,16 +15,18 @@ came with the Orbit B-hyve this replaced.
 ## Wiring
 
 ```
-24VAC wall wart -> Wago split:
-  branch 1 -> 24V→5V AC-DC converter -> ESP32 5V
-  branch 2 -> relay COM terminals (single wire daisy-chained across the back)
+24VAC wall wart -> Wago pair (hot + common)
+  hot    -> AC-DC converter in; also daisy-chained across the relay
+            COM terminals (single wire, on the back of the board)
+  common -> AC-DC converter in; also all valve commons
 
-ESP32 5V   -> relay board VCC
-ESP32 GND  -> relay board GND
-ESP32 GPIO -> relay IN1–IN8 (direct; optoisolation handles the level)
+AC-DC 5V out -> second Wago pair:
+  -> ESP32 5V/GND
+  -> relay board VCC/GND   (relay logic is NOT powered through the ESP32 —
+                            the dev board is a brain, not a bus bar)
 
-relay NO 1–4  -> individual valve wires
-24VAC common  -> all valve commons
+ESP32 GPIO -> relay IN1–IN8 (direct; optoisolation handles the level; 4 wired)
+relay NO 1–4 -> individual valve wires
 ```
 
 Zone map (4 wired, 4 reserved for expansion):
