@@ -8,17 +8,21 @@ came with the Orbit B-hyve this replaced.
 
 - ESP32 dev board (`esp32dev`)
 - 8-channel 5V optoisolated relay module — **active-low** trigger
-- 24VAC irrigation transformer (reused from the B-hyve)
+- 24VAC wall-wart irrigation transformer
+- 24V→5V 5A AC-DC converter module (powers the ESP32 from the same transformer)
 - 24VAC solenoid valves (existing in-ground)
 
 ## Wiring
 
 ```
+24VAC wall wart -> Wago split:
+  branch 1 -> 24V→5V AC-DC converter -> ESP32 5V
+  branch 2 -> relay COM terminals (single wire daisy-chained across the back)
+
 ESP32 5V   -> relay board VCC
 ESP32 GND  -> relay board GND
 ESP32 GPIO -> relay IN1–IN8 (direct; optoisolation handles the level)
 
-24VAC hot     -> all relay COM terminals
 relay NO 1–4  -> individual valve wires
 24VAC common  -> all valve commons
 ```

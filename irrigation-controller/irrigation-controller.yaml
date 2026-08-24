@@ -5,14 +5,16 @@
 # Hardware:
 #   - ESP32 dev board
 #   - 8-channel 5V optoisolated relay module (active-low)
-#   - 24VAC transformer (reused from B-hyve)
+#   - 24VAC wall-wart transformer
+#   - 24V->5V AC-DC converter module (ESP32 power, fed from the same transformer)
 #   - 24VAC solenoid valves
 #
 # Wiring:
+#   24VAC wall wart -> Wago split -> AC-DC converter -> ESP32 5V
 #   ESP32 5V  -> Relay VCC
 #   ESP32 GND -> Relay GND
 #   ESP32 GPIOs -> Relay IN1-IN8 (directly, optoisolation handles level)
-#   Relay COM (all) -> 24VAC hot
+#   Relay COM (all) -> 24VAC hot (daisy-chained across the board)
 #   Relay NO -> Individual valve wires
 #   24VAC common -> All valve commons
 
