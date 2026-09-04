@@ -12,6 +12,7 @@ Write-ups for most of these live at [ducktyping.dev](https://ducktyping.dev).
 | Device | What it does | Write-up |
 |---|---|---|
 | [irrigation-controller](irrigation-controller/) | 8-zone sprinkler controller (ESP32 + relay board), replaced an Orbit B-hyve | coming soon |
+| [bme680-air](bme680-air/) | Indoor air node (ESP32-S3 + BME680) — temp, humidity, pressure, VOC gas | coming soon |
 
 More to come — a wall thermostat is on the bench right now.
 

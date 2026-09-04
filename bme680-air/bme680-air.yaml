@@ -1,0 +1,202 @@
+# BME680 air-quality node
+# Seeed Studio XIAO ESP32C3 + BME680 breakout over I2C
+#
+# Hardware:
+#   - Seeed XIAO ESP32C3 (ESP32-C3, 4MB flash, native USB-Serial/JTAG)
+#   - BME680 breakout (temperature / humidity / pressure / VOC gas resistance)
+#
+# Wiring (XIAO, USB-C at top, component side up):
+#   BME680 VCC -> 3V3   (right side, 3rd from top)   -- NOT 5V
+#   BME680 GND -> GND   (right side, 2nd from top)
+#   BME680 SCL -> D5 = GPIO7  (left side, 6th from top)
+#   BME680 SDA -> D4 = GPIO6  (left side, 5th from top)
+#   BME680 SDO/CS -> leave floating (I2C mode, address per breakout)
+
+substitutions:
+  device_name: bme680-air
+  friendly_name: "BME680 Air"
+
+  i2c_sda: GPIO6          # XIAO D4
+  i2c_scl: GPIO7          # XIAO D5
+  bme680_address: "0x77"  # confirmed by i2c bus scan on this breakout
+
+  # Station altitude in metres, for the sea-level pressure correction.
+  altitude_m: "250"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: seeed_xiao_esp32c3
+  variant: esp32c3
+  framework:
+    type: esp-idf
+
+# The XIAO C3 has no USB-UART bridge -- the USB port IS the chip's
+# USB-Serial/JTAG peripheral. Without this, serial logs are silent.
+logger:
+  level: DEBUG
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret bme680_api_key
+
+ota:
+  - platform: esphome
+    password: !secret bme680_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # The IoT SSID is hidden -- a normal scan never finds it, so the node sits in
+  # an endless "Starting scan" loop. fast_connect skips the scan entirely.
+  fast_connect: true
+  ap:
+    ssid: "${device_name} Fallback"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+# Standalone web UI at http://<device-ip>/ -- live sensor readings without Home
+# Assistant or any cloud. `local: true` embeds the JS/CSS in flash instead of
+# pulling it from a CDN, so the page works with the WAN down. Costs flash, which
+# this board has in abundance.
+web_server:
+  port: 80
+  version: 3
+  local: true
+
+
+i2c:
+  sda: ${i2c_sda}
+  scl: ${i2c_scl}
+  scan: true          # dumps found addresses to the boot log
+  id: bus_a
+  frequency: 100kHz   # BME680 is happy here; keeps long jumper wires reliable
+
+sensor:
+  - platform: bme680
+    address: ${bme680_address}
+    update_interval: 15s
+
+    temperature:
+      name: "Temperature"
+      id: bme_temperature
+      oversampling: 16x
+      filters:
+        # BME680 self-heats from the gas hotplate; this offset is a placeholder.
+        # Calibrate it against a known-good thermometer once it's running.
+        - offset: 0.0
+
+    humidity:
+      name: "Humidity"
+      id: bme_humidity
+      oversampling: 16x
+
+    pressure:
+      name: "Pressure"
+      id: bme_pressure
+      oversampling: 16x
+
+    gas_resistance:
+      name: "Gas Resistance"
+      id: bme_gas_resistance
+
+    # Hotplate profile (platform-level, not under gas_resistance).
+    # 320C / 150ms is Bosch's reference point for VOC sensing.
+    heater:
+      temperature: 320
+      duration: 150ms
+
+  # --- Derived values (all computed on-device, no HA dependency) ---
+
+  - platform: template
+    name: "Dew Point"
+    id: bme_dew_point
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 15s
+    lambda: |-
+      // Magnus formula
+      const float t = id(bme_temperature).state;
+      const float rh = id(bme_humidity).state;
+      if (isnan(t) || isnan(rh) || rh <= 0.0f) return NAN;
+      const float a = 17.62f, b = 243.12f;
+      const float gamma = (a * t) / (b + t) + logf(rh / 100.0f);
+      return (b * gamma) / (a - gamma);
+
+  - platform: template
+    name: "Pressure (Sea Level)"
+    id: bme_pressure_sea_level
+    unit_of_measurement: "hPa"
+    device_class: atmospheric_pressure
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 15s
+    lambda: |-
+      const float p = id(bme_pressure).state;
+      const float t = id(bme_temperature).state;
+      if (isnan(p) || isnan(t)) return NAN;
+      const float altitude = ${altitude_m}.0f;  // metres above sea level
+      return p / powf(1.0f - (altitude / 44330.0f), 5.255f);
+
+  # Crude relative IAQ from gas resistance + humidity. This is NOT Bosch BSEC --
+  # it's the community heuristic: 0 = clean, 500 = foul. Useful for spotting
+  # *changes* (cooking, solvents, a closed room going stale), not absolute AQI.
+  # Needs ~20-30 min of runtime before the hotplate readings settle.
+  - platform: template
+    name: "IAQ"
+    id: bme_iaq
+    unit_of_measurement: "IAQ"
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:air-filter"
+    update_interval: 30s
+    lambda: |-
+      const float gas = id(bme_gas_resistance).state;
+      const float rh  = id(bme_humidity).state;
+      if (isnan(gas) || isnan(rh)) return NAN;
+
+      // Humidity contributes 25% of the score, centred on 40% RH.
+      float hum_score;
+      if (rh >= 38.0f && rh <= 42.0f) {
+        hum_score = 25.0f;
+      } else if (rh < 38.0f) {
+        hum_score = (rh / 40.0f) * 25.0f;
+      } else {
+        hum_score = ((100.0f - rh) / 60.0f) * 25.0f;
+      }
+
+      // Gas contributes 75%, clamped to a plausible clean-air ceiling.
+      // TODO: recalibrate these against THIS sensor after burn-in. A new BME680
+      // reads absurdly low (single-digit kOhm) until the hotplate burns off the
+      // factory contamination -- Bosch says give it 48h powered. Set gas_ceiling
+      // to whatever this unit actually settles at in clean air, or IAQ stays
+      // pegged near 500 forever.
+      const float gas_ceiling = 300000.0f;  // ohms, clean air
+      const float gas_floor   = 10000.0f;   // ohms, heavily polluted
+      float g = gas;
+      if (g > gas_ceiling) g = gas_ceiling;
+      if (g < gas_floor)   g = gas_floor;
+      const float gas_score = ((g - gas_floor) / (gas_ceiling - gas_floor)) * 75.0f;
+
+      // Invert: high score = clean, so 500 - scaled.
+      return (100.0f - (hum_score + gas_score)) * 5.0f;
+
+  - platform: uptime
+    name: "Uptime"
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  - platform: version
+    name: "ESPHome Version"
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
