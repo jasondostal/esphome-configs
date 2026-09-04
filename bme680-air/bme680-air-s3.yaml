@@ -91,6 +91,32 @@ i2c:
   id: bus_a
   frequency: 100kHz   # BME680 is happy here; keeps long jumper wires reliable
 
+globals:
+  # Rolling clean-air baseline for the gas sensor, in ohms. Flash-backed so a
+  # reboot does not throw away days of settling. Zero means "not yet learned".
+  - id: gas_baseline
+    type: float
+    restore_value: true
+    initial_value: '0'
+
+# Baseline tracking runs on its own timer rather than per-reading, to keep the
+# flash write rate sane. Fast attack, very slow decay: a NEW high instantly
+# becomes the baseline (that is genuinely the cleanest air seen), while drift
+# back down is deliberately sluggish so one round of cooking cannot convince the
+# node that a polluted room is the new normal. 0.002/min ~= a 6-hour time
+# constant downward.
+interval:
+  - interval: 60s
+    then:
+      - lambda: |-
+          const float gas = id(bme_gas_resistance).state;
+          if (isnan(gas) || gas <= 0.0f) return;
+          if (id(gas_baseline) <= 0.0f || gas > id(gas_baseline)) {
+            id(gas_baseline) = gas;
+          } else {
+            id(gas_baseline) -= (id(gas_baseline) - gas) * 0.002f;
+          }
+
 sensor:
   - platform: bme680
     address: ${bme680_address}
@@ -159,48 +185,48 @@ sensor:
       const float altitude = ${altitude_m}.0f;  // metres above sea level
       return p / powf(1.0f - (altitude / 44330.0f), 5.255f);
 
-  # Crude relative IAQ from gas resistance + humidity. This is NOT Bosch BSEC --
-  # it's the community heuristic: 0 = clean, 500 = foul. Useful for spotting
-  # *changes* (cooking, solvents, a closed room going stale), not absolute AQI.
-  # Needs ~20-30 min of runtime before the hotplate readings settle.
+  # --- VOC, scored against this sensor's OWN clean-air baseline ---
+  #
+  # Deliberately NOT a 0-500 "IAQ" index. Absolute VOC indices imply a health
+  # judgement a MOX sensor cannot make: it is non-selective (cooking alcohol and
+  # off-gassing formaldehyde look identical) and every die has its own baseline,
+  # so the raw ohms mean nothing across sensors. What IS meaningful is this
+  # sensor's reading relative to the cleanest air it has recently seen here.
+  #
+  # 100% = as clean as this room gets. Lower = more reducing gases present.
+  # Read it as a change detector, not as an air quality rating.
+  #
+  # Known limitation, inherent to every baseline-relative VOC metric including
+  # Bosch's BSEC: a room that is *persistently* bad re-baselines to its own
+  # badness and reads 100%. This catches changes, never a chronic condition.
   - platform: template
-    name: "IAQ"
-    id: bme_iaq
-    unit_of_measurement: "IAQ"
+    name: "VOC Relative"
+    id: bme_voc_relative
+    unit_of_measurement: "%"
     state_class: measurement
     accuracy_decimals: 0
     icon: "mdi:air-filter"
-    update_interval: 30s
+    update_interval: 15s
     lambda: |-
       const float gas = id(bme_gas_resistance).state;
-      const float rh  = id(bme_humidity).state;
-      if (isnan(gas) || isnan(rh)) return NAN;
+      const float base = id(gas_baseline);
+      if (isnan(gas) || gas <= 0.0f || base <= 0.0f) return NAN;
+      float pct = (gas / base) * 100.0f;
+      if (pct > 100.0f) pct = 100.0f;   // baseline update lags by up to 60s
+      return pct;
 
-      // Humidity contributes 25% of the score, centred on 40% RH.
-      float hum_score;
-      if (rh >= 38.0f && rh <= 42.0f) {
-        hum_score = 25.0f;
-      } else if (rh < 38.0f) {
-        hum_score = (rh / 40.0f) * 25.0f;
-      } else {
-        hum_score = ((100.0f - rh) / 60.0f) * 25.0f;
-      }
-
-      // Gas contributes 75%, clamped to a plausible clean-air ceiling.
-      // TODO: recalibrate these against THIS sensor after burn-in. A new BME680
-      // reads absurdly low (single-digit kOhm) until the hotplate burns off the
-      // factory contamination -- Bosch says give it 48h powered. Set gas_ceiling
-      // to whatever this unit actually settles at in clean air, or IAQ stays
-      // pegged near 500 forever.
-      const float gas_ceiling = 300000.0f;  // ohms, clean air
-      const float gas_floor   = 10000.0f;   // ohms, heavily polluted
-      float g = gas;
-      if (g > gas_ceiling) g = gas_ceiling;
-      if (g < gas_floor)   g = gas_floor;
-      const float gas_score = ((g - gas_floor) / (gas_ceiling - gas_floor)) * 75.0f;
-
-      // Invert: high score = clean, so 500 - scaled.
-      return (100.0f - (hum_score + gas_score)) * 5.0f;
+  # The baseline itself, exposed so you can watch burn-in finish. While this is
+  # still climbing, VOC Relative sits pinned near 100% and means nothing.
+  - platform: template
+    name: "VOC Baseline"
+    id: bme_gas_baseline_sensor
+    unit_of_measurement: "Ω"
+    state_class: measurement
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    icon: "mdi:chart-bell-curve"
+    update_interval: 60s
+    lambda: 'return id(gas_baseline) > 0.0f ? id(gas_baseline) : NAN;'
 
   - platform: uptime
     name: "Uptime"

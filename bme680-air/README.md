@@ -82,13 +82,47 @@ New sensors also need burn-in — Bosch says ~48h powered. This one read 1.0 kΩ
 first power-up and was still climbing through 20 kΩ four hours later, against a
 settled indoor baseline that should land in the tens-to-hundreds of kΩ.
 
-The `IAQ` sensor here is the community gas+humidity heuristic (0 = clean,
-500 = foul), **not** Bosch BSEC — that needs the closed-source blob via
-`bme68x_bsec2_i2c` and days of its own calibration. Until burn-in finishes the
-reading sits pinned near 500 because gas resistance is below the formula's floor.
-**The `gas_floor` / `gas_ceiling` constants in the lambda must be recalibrated to
-whatever this unit actually settles at in clean air**, or the number stays
-useless. There's a `TODO` on them.
+## Why there is no "IAQ" number here
+
+There deliberately isn't one, and that is not a shortcut.
+
+An absolute 0-500 IAQ index implies a health judgement a MOX sensor cannot
+make. It is non-selective — the wine you cooked with and formaldehyde
+off-gassing from new furniture look identical to it — and no standards body
+backs that scale, so its "moderate"/"poor" labels carry no threshold tied to any
+actual health guideline.
+
+Worse, the flaw is structural rather than a matter of tuning. **Every
+baseline-relative VOC metric, Bosch's own BSEC included, scores now against this
+sensor's own recent history.** A room that is *persistently* stale re-baselines
+to its own staleness and reports "good". That is an unpleasant property to hide
+behind a number people read as an air-quality rating.
+
+So this node reports two honest things instead:
+
+| Entity | Meaning |
+|---|---|
+| `Gas Resistance` | The raw measurement, in ohms. Higher = cleaner |
+| `VOC Relative` | Percent of the cleanest air this sensor has recently seen here. 100% = as good as this room gets |
+| `VOC Baseline` | The learned clean-air reference, in ohms (diagnostic) |
+
+`VOC Relative` self-calibrates against a rolling baseline held in a flash-backed
+global, so there is nothing to hand-tune per sensor. Fast attack (a new high is
+instantly the baseline — that genuinely is the cleanest air seen) and a
+deliberately sluggish ~6-hour decay, so one round of cooking cannot convince the
+node that a polluted room is the new normal.
+
+**Read it as a change detector, not a rating.** That is what the gas element is
+actually good at: cooking, solvents, paint, or a room filling with people all
+move it hard within minutes. While burn-in is still finishing, `VOC Baseline`
+climbs and `VOC Relative` sits pinned near 100% — watch the baseline to know
+when the readings have become meaningful.
+
+**If you want air quality numbers you can actually act on, this is the wrong
+sensor class.** CO2 via NDIR (SCD40/SCD41) is a real physical measurement with
+real ventilation thresholds, and PM2.5 (PMS5003, SEN5x) gives µg/m³ against WHO
+guidelines. A BME680 answers "did something change in here", not "is this air
+bad for me".
 
 ## The XIAO ESP32C3 config, and why it's shelved
 
